@@ -57,6 +57,26 @@ impl ClassroomService {
             Err(e) => format!("Error: {e}"),
         }
     }
+
+    #[tool(
+        description = "Get course work materials (posted resources like documents, links, videos) for a course"
+    )]
+    async fn course_materials(&self, Parameters(params): Parameters<CourseIdParam>) -> String {
+        match self.client.get_course_materials(&params.course_id).await {
+            Ok(val) => serde_json::to_string_pretty(&val).unwrap_or_else(|e| e.to_string()),
+            Err(e) => format!("Error: {e}"),
+        }
+    }
+
+    #[tool(
+        description = "Get topics (modules/sections) for a course that organize coursework and materials"
+    )]
+    async fn course_topics(&self, Parameters(params): Parameters<CourseIdParam>) -> String {
+        match self.client.get_course_topics(&params.course_id).await {
+            Ok(val) => serde_json::to_string_pretty(&val).unwrap_or_else(|e| e.to_string()),
+            Err(e) => format!("Error: {e}"),
+        }
+    }
 }
 
 #[tool_handler]
@@ -65,7 +85,7 @@ impl ServerHandler for ClassroomService {
         ServerInfo {
             instructions: Some(
                 "Google Classroom MCP server — provides read-only access to courses, \
-                 announcements, assignments, and student submissions."
+                 announcements, assignments, student submissions, course materials, and topics."
                     .into(),
             ),
             capabilities: ServerCapabilities::builder().enable_tools().build(),
