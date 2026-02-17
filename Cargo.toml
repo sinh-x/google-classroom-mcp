@@ -1,0 +1,38 @@
+[package]
+name = "google-classroom-mcp"
+version = "0.1.0"
+edition = "2021"
+description = "Rust MCP server for Google Classroom"
+license = "MIT"
+
+[dependencies]
+# MCP
+rmcp = { version = "0.15", features = ["server", "transport-io", "macros"] }
+schemars = "1.0"
+
+# Google API
+google-classroom1 = "7.0"
+yup-oauth2 = "12"
+hyper-rustls = { version = "0.27", features = ["http2"] }
+hyper-util = { version = "0.1", features = ["client-legacy", "http2"] }
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Async
+tokio = { version = "1", features = ["full"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Error handling
+thiserror = "2"
+anyhow = "1"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Misc
+dirs = "6"
