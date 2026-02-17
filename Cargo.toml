@@ -13,7 +13,8 @@ schemars = "1.0"
 # Google API
 google-classroom1 = "7.0"
 yup-oauth2 = "12"
-hyper-rustls = { version = "0.27", features = ["http2"] }
+rustls = { version = "0.23", features = ["ring"] }
+hyper-rustls = { version = "0.27", features = ["http2", "ring", "native-tokio"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "http2"] }
 
 # CLI

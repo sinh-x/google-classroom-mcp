@@ -30,6 +30,10 @@ enum Command {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install rustls crypto provider");
+
     // Tracing to stderr — stdout is reserved for MCP stdio transport
     tracing_subscriber::fmt()
         .with_env_filter(
