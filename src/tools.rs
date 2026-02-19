@@ -8,10 +8,12 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 
 use crate::classroom::ClassroomClient;
+use crate::drive::DriveClient;
 
 #[derive(Debug, Clone)]
 pub struct ClassroomService {
     client: Arc<ClassroomClient>,
+    drive_client: Arc<DriveClient>,
     tool_router: ToolRouter<Self>,
 }
 
@@ -21,11 +23,20 @@ pub struct CourseIdParam {
     pub course_id: String,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ReadMaterialParam {
+    #[schemars(
+        description = "A Google Drive file ID or full URL (e.g. https://docs.google.com/document/d/FILE_ID/edit)"
+    )]
+    pub file_id_or_url: String,
+}
+
 #[tool_router]
 impl ClassroomService {
-    pub fn new(client: Arc<ClassroomClient>) -> Self {
+    pub fn new(client: Arc<ClassroomClient>, drive_client: Arc<DriveClient>) -> Self {
         Self {
             client,
+            drive_client,
             tool_router: Self::tool_router(),
         }
     }
@@ -77,6 +88,21 @@ impl ClassroomService {
             Err(e) => format!("Error: {e}"),
         }
     }
+
+    #[tool(
+        description = "Read the content of a Google Drive file (Docs, Sheets, Slides, or plain text). \
+                        Accepts a file ID or full Google Drive/Docs URL. \
+                        Google Workspace documents are exported to text; binary files return metadata only."
+    )]
+    async fn read_material(
+        &self,
+        Parameters(params): Parameters<ReadMaterialParam>,
+    ) -> String {
+        match self.drive_client.read_material(&params.file_id_or_url).await {
+            Ok(val) => serde_json::to_string_pretty(&val).unwrap_or_else(|e| e.to_string()),
+            Err(e) => format!("Error: {e}"),
+        }
+    }
 }
 
 #[tool_handler]
@@ -85,7 +111,8 @@ impl ServerHandler for ClassroomService {
         ServerInfo {
             instructions: Some(
                 "Google Classroom MCP server — provides read-only access to courses, \
-                 announcements, assignments, student submissions, course materials, and topics."
+                 announcements, assignments, student submissions, course materials, and topics. \
+                 Can also read Google Drive file contents (Docs, Sheets, Slides, text files)."
                     .into(),
             ),
             capabilities: ServerCapabilities::builder().enable_tools().build(),
