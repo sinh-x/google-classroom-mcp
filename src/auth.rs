@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use google_classroom1::Classroom;
+use google_drive3::DriveHub;
 use yup_oauth2::{InstalledFlowAuthenticator, InstalledFlowReturnMethod, read_application_secret};
 
 use crate::error::AppError;
@@ -14,10 +15,14 @@ pub const SCOPES: &[&str] = &[
     "https://www.googleapis.com/auth/classroom.rosters.readonly",
     "https://www.googleapis.com/auth/classroom.courseworkmaterials.readonly",
     "https://www.googleapis.com/auth/classroom.topics.readonly",
+    "https://www.googleapis.com/auth/drive.readonly",
 ];
 
 pub type ClassroomHub =
     Classroom<hyper_rustls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>>;
+
+pub type DriveHubType =
+    DriveHub<hyper_rustls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>>;
 
 fn config_dir() -> Result<PathBuf, AppError> {
     let dir = dirs::config_dir()
@@ -82,8 +87,8 @@ pub async fn run_auth_flow() -> Result<(), AppError> {
     Ok(())
 }
 
-/// Build a Classroom API hub from previously saved tokens.
-pub async fn build_hub() -> Result<ClassroomHub, AppError> {
+/// Build Classroom and Drive API hubs from previously saved tokens.
+pub async fn build_hubs() -> Result<(ClassroomHub, DriveHubType), AppError> {
     let creds_path = credentials_path()?;
     if !creds_path.exists() {
         return Err(AppError::NotAuthenticated);
@@ -107,19 +112,20 @@ pub async fn build_hub() -> Result<ClassroomHub, AppError> {
     .await
     .map_err(|e| AppError::OAuth2(e.to_string()))?;
 
-    let connector = hyper_rustls::HttpsConnectorBuilder::new()
-        .with_native_roots()
-        .map_err(|e| AppError::Io(std::io::Error::other(e)))?
-        .https_only()
-        .enable_http2()
-        .build();
+    let build_client = || -> Result<_, AppError> {
+        let connector = hyper_rustls::HttpsConnectorBuilder::new()
+            .with_native_roots()
+            .map_err(|e| AppError::Io(std::io::Error::other(e)))?
+            .https_only()
+            .enable_http2()
+            .build();
+        Ok(hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new())
+            .build(connector))
+    };
 
-    let client =
-        hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new())
-            .build(connector);
+    let classroom_hub = Classroom::new(build_client()?, auth.clone());
+    let drive_hub = DriveHub::new(build_client()?, auth);
 
-    let hub = Classroom::new(client, auth);
-
-    tracing::info!("Classroom API hub ready");
-    Ok(hub)
+    tracing::info!("Classroom and Drive API hubs ready");
+    Ok((classroom_hub, drive_hub))
 }

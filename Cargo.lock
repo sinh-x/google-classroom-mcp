@@ -639,6 +639,8 @@ dependencies = [
  "clap",
  "dirs",
  "google-classroom1",
+ "google-drive3",
+ "http-body-util",
  "hyper-rustls",
  "hyper-util",
  "moka",
@@ -659,6 +661,26 @@ name = "google-classroom1"
 version = "7.0.0+20251217"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "95cdffaff8c0396173faef38ec47d2bc9080af899893d2be4268ecb3879a24ce"
+dependencies = [
+ "chrono",
+ "google-apis-common",
+ "hyper",
+ "hyper-rustls",
+ "hyper-util",
+ "mime",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "tokio",
+ "url",
+ "yup-oauth2",
+]
+
+[[package]]
+name = "google-drive3"
+version = "7.0.0+20251218"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "30742c5730cad187ffb8922f1a91766830676ec6b714489fcdb89e9b9385fd7c"
 dependencies = [
  "chrono",
  "google-apis-common",

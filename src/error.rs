@@ -11,6 +11,12 @@ pub enum AppError {
     #[error("Google API error: {0}")]
     GoogleApi(String),
 
+    #[error("Drive API error: {0}")]
+    DriveApi(String),
+
+    #[error("Invalid input: {0}")]
+    InvalidInput(String),
+
     #[error("OAuth2 error: {0}")]
     OAuth2(String),
 

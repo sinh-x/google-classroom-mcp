@@ -1,5 +1,6 @@
 mod auth;
 mod classroom;
+mod drive;
 mod error;
 mod tools;
 
@@ -9,8 +10,9 @@ use clap::{Parser, Subcommand};
 use rmcp::ServiceExt;
 use rmcp::transport::stdio;
 
-use crate::auth::{build_hub, run_auth_flow};
+use crate::auth::{build_hubs, run_auth_flow};
 use crate::classroom::ClassroomClient;
+use crate::drive::DriveClient;
 use crate::tools::ClassroomService;
 
 #[derive(Parser)]
@@ -50,9 +52,10 @@ async fn main() -> anyhow::Result<()> {
             run_auth_flow().await?;
         }
         Command::Run => {
-            let hub = build_hub().await?;
-            let client = Arc::new(ClassroomClient::new(hub));
-            let service = ClassroomService::new(client);
+            let (classroom_hub, drive_hub) = build_hubs().await?;
+            let client = Arc::new(ClassroomClient::new(classroom_hub));
+            let drive_client = Arc::new(DriveClient::new(drive_hub));
+            let service = ClassroomService::new(client, drive_client);
 
             tracing::info!("Starting MCP server on stdio...");
             let server = service.serve(stdio()).await?;
