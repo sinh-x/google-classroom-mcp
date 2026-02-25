@@ -1,8 +1,8 @@
 [package]
-name = "google-classroom-mcp"
-version = "0.1.0"
+name = "personal-google-mcp"
+version = "0.2.0"
 edition = "2021"
-description = "Rust MCP server for Google Classroom"
+description = "Rust MCP server for personal Google services (Classroom, Calendar, Drive, and more)"
 license = "MIT"
 
 [dependencies]

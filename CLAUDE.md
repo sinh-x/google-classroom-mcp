@@ -11,12 +11,12 @@
 
 ## Architecture
 
-Rust MCP server bridging Google Classroom API with AI assistants via the Model Context Protocol.
+Rust MCP server bridging Google APIs with AI assistants via the Model Context Protocol. Designed as a unified server for personal Google services.
 
 ### Entry Point (`src/main.rs`)
 
 Clap CLI with two subcommands:
-- `run` (default) — builds Classroom + Drive hubs from saved tokens, starts MCP server on stdio
+- `run` (default) — builds API hubs from saved tokens, starts MCP server on stdio
 - `auth` — runs interactive OAuth2 flow, saves tokens to disk
 
 Tracing logs to stderr (stdout reserved for MCP stdio transport).
@@ -24,10 +24,21 @@ Tracing logs to stderr (stdout reserved for MCP stdio transport).
 ### Modules
 
 - **`error.rs`** — `AppError` enum with `thiserror` derives
-- **`auth.rs`** — OAuth2 via `yup-oauth2` InstalledFlowAuthenticator. Config at `~/.config/google-classroom-mcp/{credentials,tokens}.json`. Redirect on port 8085. `ClassroomHub` and `DriveHubType` type aliases. `build_hubs()` returns both hubs sharing one authenticator.
-- **`classroom.rs`** — `ClassroomClient` wrapping the `google-classroom1` hub with two-tier caching: `moka` in-memory (1000 entries, 5-min TTL) for all data, plus persistent JSON disk cache at `~/.config/google-classroom-mcp/cache/` for materials and topics (never expires — survives restarts and loss of course access). Five async methods: `list_courses()`, `get_course_details()`, `get_assignments()`, `get_course_materials()`, `get_course_topics()`. Soft errors for sub-requests (announcements, submissions).
+- **`auth.rs`** — OAuth2 via `yup-oauth2` InstalledFlowAuthenticator. Config at `~/.config/personal-google-mcp/{credentials,tokens}.json`. Redirect on port 8085. Hub type aliases. `build_hubs()` returns all hubs sharing one authenticator.
+- **`classroom.rs`** — `ClassroomClient` wrapping the `google-classroom1` hub with two-tier caching: `moka` in-memory (1000 entries, 5-min TTL) for all data, plus persistent JSON disk cache at `~/.config/personal-google-mcp/cache/` for materials and topics (never expires — survives restarts and loss of course access). Five async methods: `list_courses()`, `get_course_details()`, `get_assignments()`, `get_course_materials()`, `get_course_topics()`. Soft errors for sub-requests (announcements, submissions).
 - **`drive.rs`** — `DriveClient` wrapping `google-drive3` hub with `moka` in-memory cache (200 entries, 5-min TTL). `read_material()` exports Google Workspace docs to text/CSV or downloads regular text files. Includes `parse_file_id()` for URL→ID extraction and 100 KB content truncation.
-- **`tools.rs`** — `ClassroomService` with `#[tool_router]` (6 tools) and `#[tool_handler]` for MCP. Uses `Arc<ClassroomClient>` and `Arc<DriveClient>` for Clone compatibility.
+- **`tools.rs`** — `GoogleService` with `#[tool_router]` (6 tools) and `#[tool_handler]` for MCP. Uses `Arc<ClassroomClient>` and `Arc<DriveClient>` for Clone compatibility.
+
+### Adding a New Google Service
+
+Follow this pattern (e.g., for Calendar):
+1. Add scopes to `auth.rs::SCOPES`
+2. Add dependency to `Cargo.toml` (e.g., `google-calendar3`)
+3. Create `src/calendar.rs` with `CalendarClient` (mirror `classroom.rs` pattern)
+4. Add hub type alias and build in `auth.rs::build_hubs()`
+5. Add `Arc<CalendarClient>` to `GoogleService` in `tools.rs`
+6. Add `#[tool]` handlers for the new service
+7. Re-auth to pick up new scopes: `cargo run -- auth`
 
 ### MCP Tools
 
@@ -52,5 +63,5 @@ Tracing logs to stderr (stdout reserved for MCP stdio transport).
 ## Environment
 
 - Nix dev shell via `flake.nix` + `.envrc` (direnv)
-- Helper commands in shell: `gcm-dev`, `gcm-build`, `gcm-auth`, `gcm-test`
+- Helper commands in shell: `pgm-dev`, `pgm-build`, `pgm-auth`, `pgm-test`
 - `RUST_LOG=info` default

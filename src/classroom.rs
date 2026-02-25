@@ -28,7 +28,7 @@ impl ClassroomClient {
 
         let cache_dir = dirs::config_dir()
             .unwrap_or_else(|| PathBuf::from("."))
-            .join("google-classroom-mcp")
+            .join("personal-google-mcp")
             .join("cache");
 
         if let Err(e) = std::fs::create_dir_all(&cache_dir) {

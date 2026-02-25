@@ -27,7 +27,7 @@ pub type DriveHubType =
 fn config_dir() -> Result<PathBuf, AppError> {
     let dir = dirs::config_dir()
         .ok_or_else(|| AppError::CredentialRead("cannot determine config directory".into()))?
-        .join("google-classroom-mcp");
+        .join("personal-google-mcp");
     Ok(dir)
 }
 
@@ -126,6 +126,6 @@ pub async fn build_hubs() -> Result<(ClassroomHub, DriveHubType), AppError> {
     let classroom_hub = Classroom::new(build_client()?, auth.clone());
     let drive_hub = DriveHub::new(build_client()?, auth);
 
-    tracing::info!("Classroom and Drive API hubs ready");
+    tracing::info!("Google API hubs ready");
     Ok((classroom_hub, drive_hub))
 }

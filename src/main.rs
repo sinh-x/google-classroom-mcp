@@ -13,10 +13,10 @@ use rmcp::transport::stdio;
 use crate::auth::{build_hubs, run_auth_flow};
 use crate::classroom::ClassroomClient;
 use crate::drive::DriveClient;
-use crate::tools::ClassroomService;
+use crate::tools::GoogleService;
 
 #[derive(Parser)]
-#[command(name = "google-classroom-mcp", about = "MCP server for Google Classroom")]
+#[command(name = "personal-google-mcp", about = "MCP server for personal Google services")]
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
@@ -55,7 +55,7 @@ async fn main() -> anyhow::Result<()> {
             let (classroom_hub, drive_hub) = build_hubs().await?;
             let client = Arc::new(ClassroomClient::new(classroom_hub));
             let drive_client = Arc::new(DriveClient::new(drive_hub));
-            let service = ClassroomService::new(client, drive_client);
+            let service = GoogleService::new(client, drive_client);
 
             tracing::info!("Starting MCP server on stdio...");
             let server = service.serve(stdio()).await?;

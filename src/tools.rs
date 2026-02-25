@@ -11,7 +11,7 @@ use crate::classroom::ClassroomClient;
 use crate::drive::DriveClient;
 
 #[derive(Debug, Clone)]
-pub struct ClassroomService {
+pub struct GoogleService {
     client: Arc<ClassroomClient>,
     drive_client: Arc<DriveClient>,
     tool_router: ToolRouter<Self>,
@@ -32,7 +32,7 @@ pub struct ReadMaterialParam {
 }
 
 #[tool_router]
-impl ClassroomService {
+impl GoogleService {
     pub fn new(client: Arc<ClassroomClient>, drive_client: Arc<DriveClient>) -> Self {
         Self {
             client,
@@ -106,13 +106,13 @@ impl ClassroomService {
 }
 
 #[tool_handler]
-impl ServerHandler for ClassroomService {
+impl ServerHandler for GoogleService {
     fn get_info(&self) -> ServerInfo {
         ServerInfo {
             instructions: Some(
-                "Google Classroom MCP server — provides read-only access to courses, \
-                 announcements, assignments, student submissions, course materials, and topics. \
-                 Can also read Google Drive file contents (Docs, Sheets, Slides, text files)."
+                "Personal Google MCP server — provides access to Google services including \
+                 Classroom (courses, announcements, assignments, materials), \
+                 Drive (file reading), and more services coming soon (Calendar, Gmail, etc.)."
                     .into(),
             ),
             capabilities: ServerCapabilities::builder().enable_tools().build(),
