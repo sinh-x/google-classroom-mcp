@@ -1,4 +1,5 @@
 mod auth;
+mod calendar;
 mod classroom;
 mod drive;
 mod error;
@@ -11,6 +12,7 @@ use rmcp::ServiceExt;
 use rmcp::transport::stdio;
 
 use crate::auth::{build_hubs, run_auth_flow};
+use crate::calendar::CalendarClient;
 use crate::classroom::ClassroomClient;
 use crate::drive::DriveClient;
 use crate::tools::GoogleService;
@@ -52,10 +54,11 @@ async fn main() -> anyhow::Result<()> {
             run_auth_flow().await?;
         }
         Command::Run => {
-            let (classroom_hub, drive_hub) = build_hubs().await?;
+            let (classroom_hub, drive_hub, calendar_hub) = build_hubs().await?;
             let client = Arc::new(ClassroomClient::new(classroom_hub));
             let drive_client = Arc::new(DriveClient::new(drive_hub));
-            let service = GoogleService::new(client, drive_client);
+            let calendar_client = Arc::new(CalendarClient::new(calendar_hub));
+            let service = GoogleService::new(client, drive_client, calendar_client);
 
             tracing::info!("Starting MCP server on stdio...");
             let server = service.serve(stdio()).await?;

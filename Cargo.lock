@@ -632,6 +632,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "google-calendar3"
+version = "7.0.0+20251214"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8ea77c8a4c1735f9e96c60a276d49fd08452ec39f29155782cbd080f60ffb9e4"
+dependencies = [
+ "chrono",
+ "google-apis-common",
+ "hyper",
+ "hyper-rustls",
+ "hyper-util",
+ "mime",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "tokio",
+ "url",
+ "yup-oauth2",
+]
+
+[[package]]
 name = "google-classroom1"
 version = "7.0.0+20251217"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1226,8 +1246,10 @@ name = "personal-google-mcp"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "clap",
  "dirs",
+ "google-calendar3",
  "google-classroom1",
  "google-drive3",
  "http-body-util",

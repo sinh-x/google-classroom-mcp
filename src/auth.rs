@@ -2,6 +2,7 @@ use std::future::Future;
 use std::path::PathBuf;
 use std::pin::Pin;
 
+use google_calendar3::CalendarHub;
 use google_classroom1::Classroom;
 use google_drive3::DriveHub;
 use yup_oauth2::authenticator_delegate::InstalledFlowDelegate;
@@ -38,6 +39,7 @@ pub const SCOPES: &[&str] = &[
     "https://www.googleapis.com/auth/classroom.courseworkmaterials.readonly",
     "https://www.googleapis.com/auth/classroom.topics.readonly",
     "https://www.googleapis.com/auth/drive.readonly",
+    "https://www.googleapis.com/auth/calendar.readonly",
 ];
 
 pub type ClassroomHub =
@@ -45,6 +47,9 @@ pub type ClassroomHub =
 
 pub type DriveHubType =
     DriveHub<hyper_rustls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>>;
+
+pub type CalendarHubType =
+    CalendarHub<hyper_rustls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>>;
 
 fn config_dir() -> Result<PathBuf, AppError> {
     let dir = dirs::config_dir()
@@ -110,7 +115,7 @@ pub async fn run_auth_flow() -> Result<(), AppError> {
 }
 
 /// Build Classroom and Drive API hubs from previously saved tokens.
-pub async fn build_hubs() -> Result<(ClassroomHub, DriveHubType), AppError> {
+pub async fn build_hubs() -> Result<(ClassroomHub, DriveHubType, CalendarHubType), AppError> {
     let creds_path = credentials_path()?;
     if !creds_path.exists() {
         return Err(AppError::NotAuthenticated);
@@ -163,8 +168,9 @@ pub async fn build_hubs() -> Result<(ClassroomHub, DriveHubType), AppError> {
     };
 
     let classroom_hub = Classroom::new(build_client()?, auth.clone());
-    let drive_hub = DriveHub::new(build_client()?, auth);
+    let drive_hub = DriveHub::new(build_client()?, auth.clone());
+    let calendar_hub = CalendarHub::new(build_client()?, auth);
 
     tracing::info!("Google API hubs ready");
-    Ok((classroom_hub, drive_hub))
+    Ok((classroom_hub, drive_hub, calendar_hub))
 }

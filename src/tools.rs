@@ -7,6 +7,7 @@ use rmcp::{tool, tool_handler, tool_router, ServerHandler};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
+use crate::calendar::CalendarClient;
 use crate::classroom::ClassroomClient;
 use crate::drive::DriveClient;
 
@@ -14,6 +15,7 @@ use crate::drive::DriveClient;
 pub struct GoogleService {
     client: Arc<ClassroomClient>,
     drive_client: Arc<DriveClient>,
+    calendar_client: Arc<CalendarClient>,
     tool_router: ToolRouter<Self>,
 }
 
@@ -21,6 +23,22 @@ pub struct GoogleService {
 pub struct CourseIdParam {
     #[schemars(description = "The ID of the course")]
     pub course_id: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct CalendarEventsParam {
+    #[schemars(description = "Calendar ID (use 'primary' for the user's main calendar)")]
+    pub calendar_id: String,
+    #[schemars(description = "Number of days ahead to fetch events (default: 7)")]
+    pub days_ahead: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct CalendarEventDetailParam {
+    #[schemars(description = "Calendar ID (use 'primary' for the user's main calendar)")]
+    pub calendar_id: String,
+    #[schemars(description = "The event ID")]
+    pub event_id: String,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -33,10 +51,15 @@ pub struct ReadMaterialParam {
 
 #[tool_router]
 impl GoogleService {
-    pub fn new(client: Arc<ClassroomClient>, drive_client: Arc<DriveClient>) -> Self {
+    pub fn new(
+        client: Arc<ClassroomClient>,
+        drive_client: Arc<DriveClient>,
+        calendar_client: Arc<CalendarClient>,
+    ) -> Self {
         Self {
             client,
             drive_client,
+            calendar_client,
             tool_router: Self::tool_router(),
         }
     }
@@ -103,6 +126,40 @@ impl GoogleService {
             Err(e) => format!("Error: {e}"),
         }
     }
+
+    #[tool(description = "List all Google Calendars the authenticated user has access to")]
+    async fn calendars(&self) -> String {
+        match self.calendar_client.list_calendars().await {
+            Ok(val) => serde_json::to_string_pretty(&val).unwrap_or_else(|e| e.to_string()),
+            Err(e) => format!("Error: {e}"),
+        }
+    }
+
+    #[tool(
+        description = "List upcoming events on a Google Calendar. \
+                        Use calendar_id 'primary' for the user's main calendar."
+    )]
+    async fn calendar_events(
+        &self,
+        Parameters(params): Parameters<CalendarEventsParam>,
+    ) -> String {
+        let days = params.days_ahead.unwrap_or(7);
+        match self.calendar_client.list_events(&params.calendar_id, days).await {
+            Ok(val) => serde_json::to_string_pretty(&val).unwrap_or_else(|e| e.to_string()),
+            Err(e) => format!("Error: {e}"),
+        }
+    }
+
+    #[tool(description = "Get full details for a specific Google Calendar event")]
+    async fn calendar_event_details(
+        &self,
+        Parameters(params): Parameters<CalendarEventDetailParam>,
+    ) -> String {
+        match self.calendar_client.get_event(&params.calendar_id, &params.event_id).await {
+            Ok(val) => serde_json::to_string_pretty(&val).unwrap_or_else(|e| e.to_string()),
+            Err(e) => format!("Error: {e}"),
+        }
+    }
 }
 
 #[tool_handler]
@@ -112,7 +169,8 @@ impl ServerHandler for GoogleService {
             instructions: Some(
                 "Personal Google MCP server — provides access to Google services including \
                  Classroom (courses, announcements, assignments, materials), \
-                 Drive (file reading), and more services coming soon (Calendar, Gmail, etc.)."
+                 Calendar (list calendars, upcoming events, event details), \
+                 Drive (file reading), and more services coming soon (Gmail, etc.)."
                     .into(),
             ),
             capabilities: ServerCapabilities::builder().enable_tools().build(),
