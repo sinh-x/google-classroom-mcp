@@ -1,10 +1,32 @@
+use std::future::Future;
 use std::path::PathBuf;
+use std::pin::Pin;
 
 use google_classroom1::Classroom;
 use google_drive3::DriveHub;
+use yup_oauth2::authenticator_delegate::InstalledFlowDelegate;
 use yup_oauth2::{InstalledFlowAuthenticator, InstalledFlowReturnMethod, read_application_secret};
 
 use crate::error::AppError;
+
+/// Custom delegate that prevents interactive browser auth in server mode.
+/// Logs to stderr instead of printing to stdout (which would corrupt MCP transport).
+struct ServerFlowDelegate;
+
+impl InstalledFlowDelegate for ServerFlowDelegate {
+    fn present_user_url<'a>(
+        &'a self,
+        _url: &'a str,
+        _need_code: bool,
+    ) -> Pin<Box<dyn Future<Output = Result<String, String>> + Send + 'a>> {
+        Box::pin(async {
+            tracing::error!(
+                "Token refresh failed — re-authenticate: personal-google-mcp auth"
+            );
+            Err("interactive auth not available in server mode".into())
+        })
+    }
+}
 
 const OAUTH_REDIRECT_PORT: u16 = 8085;
 
@@ -103,14 +125,31 @@ pub async fn build_hubs() -> Result<(ClassroomHub, DriveHubType), AppError> {
         .await
         .map_err(|e| AppError::CredentialRead(format!("failed to parse credentials.json: {e}")))?;
 
+    // Use Interactive mode (not HTTPPortRedirect) so that when the delegate
+    // returns Err, the error propagates instead of blocking on wait_for_auth_code().
+    // With HTTPPortRedirect, the delegate's return is discarded (`let _ =`) and
+    // the server blocks forever waiting for a browser redirect that never comes.
     let auth = InstalledFlowAuthenticator::builder(
         secret,
-        InstalledFlowReturnMethod::HTTPPortRedirect(OAUTH_REDIRECT_PORT),
+        InstalledFlowReturnMethod::Interactive,
     )
     .persist_tokens_to_disk(&tokens)
+    .flow_delegate(Box::new(ServerFlowDelegate))
     .build()
     .await
     .map_err(|e| AppError::OAuth2(e.to_string()))?;
+
+    // Validate token at startup — catches expired/revoked tokens before any
+    // MCP tool call. With an unverified Google app, refresh tokens expire after
+    // 7 days, so this will fail fast with a clear re-auth message.
+    match auth.token(SCOPES).await {
+        Ok(_) => tracing::info!("OAuth token validated successfully"),
+        Err(e) => {
+            return Err(AppError::OAuth2(format!(
+                "token refresh failed — re-authenticate with `personal-google-mcp auth`: {e}"
+            )));
+        }
+    }
 
     let build_client = || -> Result<_, AppError> {
         let connector = hyper_rustls::HttpsConnectorBuilder::new()
