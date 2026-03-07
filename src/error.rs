@@ -2,9 +2,6 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum AppError {
-    #[error("not authenticated — run `auth` first to set up credentials")]
-    NotAuthenticated,
-
     #[error("failed to read credentials: {0}")]
     CredentialRead(String),
 

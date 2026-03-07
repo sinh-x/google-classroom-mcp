@@ -58,16 +58,48 @@ fn config_dir() -> Result<PathBuf, AppError> {
     Ok(dir)
 }
 
+/// Profile-scoped directory for per-account data (tokens, cache).
+/// When PGM_PROFILE is set, returns config_dir()/{profile}/.
+/// When unset or empty, returns config_dir() (backward compat).
+pub fn profile_dir() -> Result<PathBuf, AppError> {
+    let base = config_dir()?;
+    match std::env::var("PGM_PROFILE") {
+        Ok(profile) if !profile.is_empty() => {
+            if !profile
+                .chars()
+                .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+            {
+                return Err(AppError::CredentialRead(format!(
+                    "PGM_PROFILE must contain only alphanumeric characters, hyphens, or underscores, got: {profile}"
+                )));
+            }
+            Ok(base.join(&profile))
+        }
+        _ => Ok(base),
+    }
+}
+
+/// Returns the active profile name, or None for the default profile.
+pub fn active_profile() -> Option<String> {
+    std::env::var("PGM_PROFILE")
+        .ok()
+        .filter(|p| !p.is_empty())
+}
+
 fn credentials_path() -> Result<PathBuf, AppError> {
     Ok(config_dir()?.join("credentials.json"))
 }
 
 fn tokens_path() -> Result<PathBuf, AppError> {
-    Ok(config_dir()?.join("tokens.json"))
+    Ok(profile_dir()?.join("tokens.json"))
 }
 
 /// Run the interactive OAuth2 flow: opens a browser, waits for consent, saves tokens.
 pub async fn run_auth_flow() -> Result<(), AppError> {
+    if let Some(profile) = active_profile() {
+        tracing::info!("Authenticating profile: {profile}");
+    }
+
     let creds_path = credentials_path()?;
     if !creds_path.exists() {
         return Err(AppError::CredentialRead(format!(
@@ -109,6 +141,9 @@ pub async fn run_auth_flow() -> Result<(), AppError> {
 
     tracing::info!("Authentication successful!");
     tracing::info!("Tokens saved to {}", tokens.display());
+    if let Some(profile) = active_profile() {
+        tracing::info!("Profile: {profile}");
+    }
     tracing::debug!("Token expires: {:?}", token.expiration_time());
 
     Ok(())
@@ -116,14 +151,27 @@ pub async fn run_auth_flow() -> Result<(), AppError> {
 
 /// Build Classroom and Drive API hubs from previously saved tokens.
 pub async fn build_hubs() -> Result<(ClassroomHub, DriveHubType, CalendarHubType), AppError> {
+    if let Some(profile) = active_profile() {
+        tracing::info!("Using profile: {profile}");
+    }
+
+    let profile_hint = match active_profile() {
+        Some(p) => format!(" for profile '{p}' — run `PGM_PROFILE={p} personal-google-mcp auth`"),
+        None => " — run `personal-google-mcp auth` first".into(),
+    };
+
     let creds_path = credentials_path()?;
     if !creds_path.exists() {
-        return Err(AppError::NotAuthenticated);
+        return Err(AppError::CredentialRead(format!(
+            "not authenticated{profile_hint}"
+        )));
     }
 
     let tokens = tokens_path()?;
     if !tokens.exists() {
-        return Err(AppError::NotAuthenticated);
+        return Err(AppError::CredentialRead(format!(
+            "not authenticated{profile_hint}"
+        )));
     }
 
     let secret = read_application_secret(&creds_path)

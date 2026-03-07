@@ -24,7 +24,7 @@ Tracing logs to stderr (stdout reserved for MCP stdio transport).
 ### Modules
 
 - **`error.rs`** — `AppError` enum with `thiserror` derives
-- **`auth.rs`** — OAuth2 via `yup-oauth2` InstalledFlowAuthenticator. Config at `~/.config/personal-google-mcp/{credentials,tokens}.json`. Redirect on port 8085. Hub type aliases. `build_hubs()` returns all hubs sharing one authenticator.
+- **`auth.rs`** — OAuth2 via `yup-oauth2` InstalledFlowAuthenticator. Config at `~/.config/personal-google-mcp/{credentials,tokens}.json`. Redirect on port 8085. Hub type aliases. `build_hubs()` returns all hubs sharing one authenticator. Supports multi-profile via `PGM_PROFILE` env var — `profile_dir()` and `active_profile()` helpers.
 - **`classroom.rs`** — `ClassroomClient` wrapping the `google-classroom1` hub with two-tier caching: `moka` in-memory (1000 entries, 5-min TTL) for all data, plus persistent JSON disk cache at `~/.config/personal-google-mcp/cache/` for materials and topics (never expires — survives restarts and loss of course access). Five async methods: `list_courses()`, `get_course_details()`, `get_assignments()`, `get_course_materials()`, `get_course_topics()`. Soft errors for sub-requests (announcements, submissions).
 - **`drive.rs`** — `DriveClient` wrapping `google-drive3` hub with `moka` in-memory cache (200 entries, 5-min TTL). `read_material()` exports Google Workspace docs to text/CSV or downloads regular text files. Includes `parse_file_id()` for URL→ID extraction and 100 KB content truncation.
 - **`tools.rs`** — `GoogleService` with `#[tool_router]` (6 tools) and `#[tool_handler]` for MCP. Uses `Arc<ClassroomClient>` and `Arc<DriveClient>` for Clone compatibility.
@@ -59,6 +59,45 @@ Follow this pattern (e.g., for Calendar):
 - `yup-oauth2` 12 — OAuth2 authentication
 - `hyper-rustls` 0.27 — HTTPS connector
 - `moka` 0.12 — In-memory async cache (5-min TTL, 1000-entry cap); materials/topics also persisted to disk
+
+### Multi-Account Profiles
+
+Set `PGM_PROFILE` env var to use a named profile for a different Google account:
+
+```bash
+# Authenticate a new profile
+PGM_PROFILE=work cargo run -- auth
+
+# Run server with that profile
+PGM_PROFILE=work cargo run -- run
+```
+
+File layout:
+- `~/.config/personal-google-mcp/credentials.json` — shared OAuth client config
+- `~/.config/personal-google-mcp/{profile}/tokens.json` — per-profile tokens
+- `~/.config/personal-google-mcp/{profile}/cache/` — per-profile disk cache
+
+When `PGM_PROFILE` is unset, the server uses the default (root-level) config for backward compatibility.
+
+#### Claude Desktop config example (multiple accounts)
+
+```json
+{
+  "mcpServers": {
+    "google-personal": {
+      "command": "personal-google-mcp",
+      "args": ["run"]
+    },
+    "google-work": {
+      "command": "personal-google-mcp",
+      "args": ["run"],
+      "env": {
+        "PGM_PROFILE": "work"
+      }
+    }
+  }
+}
+```
 
 ## Environment
 

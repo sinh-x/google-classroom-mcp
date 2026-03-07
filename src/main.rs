@@ -11,7 +11,7 @@ use clap::{Parser, Subcommand};
 use rmcp::ServiceExt;
 use rmcp::transport::stdio;
 
-use crate::auth::{build_hubs, run_auth_flow};
+use crate::auth::{active_profile, build_hubs, run_auth_flow};
 use crate::calendar::CalendarClient;
 use crate::classroom::ClassroomClient;
 use crate::drive::DriveClient;
@@ -48,6 +48,10 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let cli = Cli::parse();
+
+    if let Some(profile) = active_profile() {
+        tracing::info!("Active profile: {profile}");
+    }
 
     match cli.command.unwrap_or(Command::Run) {
         Command::Auth => {

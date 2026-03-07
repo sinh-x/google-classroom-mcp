@@ -26,10 +26,14 @@ impl ClassroomClient {
             .time_to_live(Duration::from_secs(300))
             .build();
 
-        let cache_dir = dirs::config_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("personal-google-mcp")
-            .join("cache");
+        let cache_dir = crate::auth::profile_dir()
+            .map(|d| d.join("cache"))
+            .unwrap_or_else(|_| {
+                dirs::config_dir()
+                    .unwrap_or_else(|| PathBuf::from("."))
+                    .join("personal-google-mcp")
+                    .join("cache")
+            });
 
         if let Err(e) = std::fs::create_dir_all(&cache_dir) {
             tracing::warn!("failed to create disk cache directory: {e}");
