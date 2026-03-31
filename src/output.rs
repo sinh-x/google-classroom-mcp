@@ -366,12 +366,14 @@ impl OutputWriter {
     }
 
     /// Slugify a string for use in filenames.
-    /// Strips non-alphanumeric characters, converts to lowercase, replaces spaces with hyphens.
+    /// Strips non-alphanumeric characters except hyphens, converts to lowercase, replaces spaces with hyphens.
     pub fn slugify(name: &str) -> String {
         let mut slug = String::new();
         for (i, c) in name.chars().enumerate() {
             if c.is_alphanumeric() {
                 slug.push(c.to_ascii_lowercase());
+            } else if c == '-' && i > 0 && !slug.ends_with('-') {
+                slug.push('-');
             } else if c.is_whitespace() && i > 0 && !slug.ends_with('-') {
                 slug.push('-');
             }
