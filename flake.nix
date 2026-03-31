@@ -39,6 +39,9 @@
             # Build dependencies
             pkg-config
             openssl
+
+            # Security auditing
+            cargo-audit
           ];
 
           shellHook = ''
