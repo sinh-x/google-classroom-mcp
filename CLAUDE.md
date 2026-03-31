@@ -24,10 +24,10 @@ Tracing logs to stderr (stdout reserved for MCP stdio transport).
 ### Modules
 
 - **`error.rs`** — `AppError` enum with `thiserror` derives
-- **`auth.rs`** — OAuth2 via `yup-oauth2` InstalledFlowAuthenticator. Config at `~/.config/personal-google-mcp/{credentials,tokens}.json`. Redirect on port 8085. Hub type aliases. `build_hubs()` returns all hubs sharing one authenticator. Supports multi-profile via `PGM_PROFILE` env var — `profile_dir()` and `active_profile()` helpers.
-- **`classroom.rs`** — `ClassroomClient` wrapping the `google-classroom1` hub with two-tier caching: `moka` in-memory (1000 entries, 5-min TTL) for all data, plus persistent JSON disk cache at `~/.config/personal-google-mcp/cache/` for materials and topics (never expires — survives restarts and loss of course access). Five async methods: `list_courses()`, `get_course_details()`, `get_assignments()`, `get_course_materials()`, `get_course_topics()`. Soft errors for sub-requests (announcements, submissions).
+- **`auth.rs`** — OAuth2 via `yup-oauth2` InstalledFlowAuthenticator. Config at `~/.config/personal-google-mcp/{credentials,tokens}.json`. Redirect on port 8085. Hub type aliases. `ProfileHubs` bundles all hubs for one profile. `discover_profiles()` scans config dir for authenticated profiles. `build_hubs_for_profile()` builds hubs for a single profile. `build_all_hubs()` discovers all profiles and builds hubs for each, returning `HashMap<String, ProfileHubs>`. `profile_dir_for()` returns the directory for a named profile. Auth still interactive via `PGM_PROFILE` env var — `profile_dir()` and `active_profile()` helpers.
+- **`classroom.rs`** — `ClassroomClient` wrapping the `google-classroom1` hub with two-tier caching: `moka` in-memory (1000 entries, 5-min TTL) for all data, plus persistent JSON disk cache (never expires — survives restarts and loss of course access). Constructor takes explicit `cache_dir: PathBuf` (caller provides profile-specific path). Five async methods: `list_courses()`, `get_course_details()`, `get_assignments()`, `get_course_materials()`, `get_course_topics()`. Soft errors for sub-requests (announcements, submissions).
 - **`drive.rs`** — `DriveClient` wrapping `google-drive3` hub with `moka` in-memory cache (200 entries, 5-min TTL). `read_material()` exports Google Workspace docs to text/CSV or downloads regular text files. Includes `parse_file_id()` for URL→ID extraction and 100 KB content truncation.
-- **`tools.rs`** — `GoogleService` with `#[tool_router]` (6 tools) and `#[tool_handler]` for MCP. Uses `Arc<ClassroomClient>` and `Arc<DriveClient>` for Clone compatibility.
+- **`tools.rs`** — `GoogleService` with `#[tool_router]` (10 tools) and `#[tool_handler]` for MCP. Holds `HashMap<String, ProfileClients>` for multi-account support. `ProfileClients` bundles `Arc<ClassroomClient>`, `Arc<DriveClient>`, `Arc<CalendarClient>`. All tools accept optional `profile` parameter. `resolve_profile()` helper defaults to the default profile. `list_profiles` tool returns available profiles.
 
 ### Adding a New Google Service
 
@@ -35,21 +35,27 @@ Follow this pattern (e.g., for Calendar):
 1. Add scopes to `auth.rs::SCOPES`
 2. Add dependency to `Cargo.toml` (e.g., `google-calendar3`)
 3. Create `src/calendar.rs` with `CalendarClient` (mirror `classroom.rs` pattern)
-4. Add hub type alias and build in `auth.rs::build_hubs()`
+4. Add hub type alias and field to `ProfileHubs` in `auth.rs`, build in `build_hubs_for_profile()`
 5. Add `Arc<CalendarClient>` to `GoogleService` in `tools.rs`
 6. Add `#[tool]` handlers for the new service
 7. Re-auth to pick up new scopes: `cargo run -- auth`
 
 ### MCP Tools
 
+All tools accept an optional `profile` parameter to select which Google account to use.
+
 | Tool | Parameters | Description |
 |------|-----------|-------------|
-| `courses` | none | List all courses |
-| `course_details` | `course_id` | Course + up to 20 announcements |
-| `assignments` | `course_id` | Coursework + submissions for first 5 |
-| `course_materials` | `course_id` | Posted resources (docs, links, videos) |
-| `course_topics` | `course_id` | Topics (modules/sections) organizing content |
-| `read_material` | `file_id_or_url` | Read Google Drive file content (Docs→text, Sheets→CSV) |
+| `list_profiles` | — | List available profiles and which is default |
+| `courses` | `profile?` | List all courses |
+| `course_details` | `course_id`, `profile?` | Course + up to 20 announcements |
+| `assignments` | `course_id`, `profile?` | Coursework + submissions for first 5 |
+| `course_materials` | `course_id`, `profile?` | Posted resources (docs, links, videos) |
+| `course_topics` | `course_id`, `profile?` | Topics (modules/sections) organizing content |
+| `read_material` | `file_id_or_url`, `profile?` | Read Google Drive file content (Docs→text, Sheets→CSV) |
+| `calendars` | `profile?` | List all calendars |
+| `calendar_events` | `calendar_id`, `days_ahead?`, `profile?` | Upcoming events on a calendar |
+| `calendar_event_details` | `calendar_id`, `event_id`, `profile?` | Full details for a specific event |
 
 ### Key Dependencies
 
@@ -62,42 +68,40 @@ Follow this pattern (e.g., for Calendar):
 
 ### Multi-Account Profiles
 
-Set `PGM_PROFILE` env var to use a named profile for a different Google account:
+A single server instance discovers all authenticated profiles at startup and serves them all. Use the `profile` parameter on any tool to select which account to use.
+
+**Authentication** (one profile at a time via `PGM_PROFILE` env var):
 
 ```bash
-# Authenticate a new profile
-PGM_PROFILE=work cargo run -- auth
+# Authenticate default profile
+cargo run -- auth
 
-# Run server with that profile
-PGM_PROFILE=work cargo run -- run
+# Authenticate a named profile
+PGM_PROFILE=work cargo run -- auth
 ```
 
-File layout:
+**File layout:**
 - `~/.config/personal-google-mcp/credentials.json` — shared OAuth client config
-- `~/.config/personal-google-mcp/{profile}/tokens.json` — per-profile tokens
+- `~/.config/personal-google-mcp/tokens.json` — default profile tokens
+- `~/.config/personal-google-mcp/{profile}/tokens.json` — named profile tokens
 - `~/.config/personal-google-mcp/{profile}/cache/` — per-profile disk cache
 
-When `PGM_PROFILE` is unset, the server uses the default (root-level) config for backward compatibility.
+**At startup**, the server scans the config directory for all directories containing `tokens.json`. Root-level = "default" profile, subdirectories = named profiles. Profiles that fail authentication are skipped with a warning.
 
-#### Claude Desktop config example (multiple accounts)
+#### Claude Desktop config example (single server, multiple accounts)
 
 ```json
 {
   "mcpServers": {
-    "google-personal": {
+    "personal-google": {
       "command": "personal-google-mcp",
       "args": ["run"]
-    },
-    "google-work": {
-      "command": "personal-google-mcp",
-      "args": ["run"],
-      "env": {
-        "PGM_PROFILE": "work"
-      }
     }
   }
 }
 ```
+
+Then use `list_profiles` to see available accounts and pass `"profile": "work"` to any tool.
 
 ## Environment
 
