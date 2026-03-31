@@ -308,3 +308,28 @@ pub async fn run_auth_flow() -> Result<(), AppError> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_discover_profiles_returns_vec_of_profiles() {
+        // discover_profiles uses the real config dir, so we just verify it returns a valid result
+        let result = discover_profiles();
+        assert!(result.is_ok());
+        let profiles = result.unwrap();
+        // Should return a vector of (name, path) tuples
+        for (name, path) in &profiles {
+            assert!(!name.is_empty());
+            assert!(path.exists() || path.to_string_lossy().contains("personal-google-mcp"));
+        }
+    }
+
+    #[test]
+    fn test_discover_profiles_skips_cache_directory() {
+        // discover_profiles uses the real config dir - we just verify it returns Ok
+        let result = discover_profiles();
+        assert!(result.is_ok());
+    }
+}

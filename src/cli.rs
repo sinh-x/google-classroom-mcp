@@ -63,7 +63,7 @@ fn default_output_dir(profile: &str) -> PathBuf {
 }
 
 /// Verify that tokens exist for the given profile (fail-fast auth check).
-fn verify_auth(profile: &str) -> Result<(), AppError> {
+pub fn verify_auth(profile: &str) -> Result<(), AppError> {
     let dir = profile_dir_for(profile)?;
     let tokens_path = dir.join("tokens.json");
     if !tokens_path.exists() {
@@ -261,4 +261,56 @@ pub async fn run_drive(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::env;
+
+    #[test]
+    fn test_verify_auth_with_missing_token() {
+        // Set PGM_PROFILE to a temp directory that has no tokens.json
+        let temp_profile_name = "verify_auth_missing";
+        env::set_var("PGM_PROFILE", temp_profile_name);
+
+        let profile_path = dirs::config_dir()
+            .unwrap()
+            .join("personal-google-mcp")
+            .join(temp_profile_name);
+        std::fs::create_dir_all(&profile_path).ok();
+        // Ensure no tokens.json exists
+        std::fs::remove_file(profile_path.join("tokens.json")).ok();
+
+        let result = verify_auth(temp_profile_name);
+        env::remove_var("PGM_PROFILE");
+
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("not authenticated"));
+    }
+
+    #[test]
+    fn test_verify_auth_with_existing_token() {
+        // Set PGM_PROFILE to a temp directory that has tokens.json
+        let temp_profile_name = "verify_auth_existing";
+        env::set_var("PGM_PROFILE", temp_profile_name);
+
+        let profile_path = dirs::config_dir()
+            .unwrap()
+            .join("personal-google-mcp")
+            .join(temp_profile_name);
+        std::fs::create_dir_all(&profile_path).ok();
+
+        // Create a dummy tokens.json
+        std::fs::write(profile_path.join("tokens.json"), r#"{"access_token": "test"}"#).ok();
+
+        let result = verify_auth(temp_profile_name);
+        env::remove_var("PGM_PROFILE");
+
+        assert!(result.is_ok());
+
+        // Cleanup
+        std::fs::remove_file(profile_path.join("tokens.json")).ok();
+    }
 }

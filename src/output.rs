@@ -399,10 +399,163 @@ mod tests {
     }
 
     #[test]
+    fn test_slugify_edge_cases() {
+        // Special characters - # is stripped (not alphanumeric, hyphen, or space)
+        assert_eq!(OutputWriter::slugify("Hello! World?"), "hello-world");
+        assert_eq!(OutputWriter::slugify("file#1.txt"), "file1txt");
+        // Unicode - trailing hyphen trimmed, multiple spaces collapse to one hyphen
+        assert_eq!(OutputWriter::slugify("日本語"), "日本語");
+        assert_eq!(OutputWriter::slugify("émojis 🎉"), "émojis");
+        // Empty string
+        assert_eq!(OutputWriter::slugify(""), "");
+        // Leading/trailing hyphens
+        assert_eq!(OutputWriter::slugify("-leading-hyphen-"), "leading-hyphen");
+        // Multiple spaces - spaces after first are skipped because slug already ends with '-'
+        assert_eq!(OutputWriter::slugify("multiple   spaces"), "multiple-spaces");
+    }
+
+    #[test]
     fn test_title_case() {
         let writer = OutputWriter::new("default".to_string(), PathBuf::from("/tmp"));
         assert_eq!(writer.title_case("courses"), "Courses");
         assert_eq!(writer.title_case("course_details"), "Course Details");
         assert_eq!(writer.title_case("drive-read"), "Drive Read");
+    }
+
+    #[test]
+    fn test_format_courses_with_sample_json() {
+        let writer = OutputWriter::new("default".to_string(), PathBuf::from("/tmp"));
+        let sample_courses = serde_json::json!([
+            {
+                "id": "123",
+                "name": "Introduction to Computer Science",
+                "courseState": "ACTIVE",
+                "section": "A"
+            },
+            {
+                "id": "456",
+                "name": "Advanced Programming",
+                "courseState": "ARCHIVED",
+                "section": "B"
+            }
+        ]);
+        let result = writer.format_courses(&sample_courses);
+        assert!(result.contains("| Introduction to Computer Science | 123 | ACTIVE | A |"));
+        assert!(result.contains("| Advanced Programming | 456 | ARCHIVED | B |"));
+    }
+
+    #[test]
+    fn test_format_events_with_sample_json() {
+        let writer = OutputWriter::new("default".to_string(), PathBuf::from("/tmp"));
+        let sample_events = serde_json::json!([
+            {
+                "summary": "Team Meeting",
+                "start": { "dateTime": "2026-03-31T10:00:00+07:00" },
+                "end": { "dateTime": "2026-03-31T11:00:00+07:00" },
+                "location": "Conference Room A"
+            },
+            {
+                "summary": "Lunch Break",
+                "start": { "date": "2026-03-31" },
+                "end": { "date": "2026-03-31" },
+                "location": ""
+            }
+        ]);
+        let result = writer.format_events(&sample_events);
+        assert!(result.contains("| Team Meeting |"));
+        assert!(result.contains("| 2026-03-31T10:00:00+07:00 |"));
+        assert!(result.contains("| Conference Room A |"));
+        assert!(result.contains("| Lunch Break |"));
+    }
+
+    #[test]
+    fn test_format_drive_read_with_sample_json() {
+        let writer = OutputWriter::new("default".to_string(), PathBuf::from("/tmp"));
+        let sample_drive = serde_json::json!({
+            "metadata": {
+                "id": "abc123",
+                "name": "Test Document",
+                "mimeType": "application/vnd.google-apps.document"
+            },
+            "content": "This is the document content.",
+            "note": "Important document"
+        });
+        let result = writer.format_drive_read(&sample_drive);
+        assert!(result.contains("## File Metadata"));
+        assert!(result.contains("| Field | Value |"));
+        assert!(result.contains("| id | abc123 |"));
+        assert!(result.contains("## Content"));
+        assert!(result.contains("This is the document content."));
+        assert!(result.contains("> Important document"));
+    }
+
+    #[test]
+    fn test_format_data_as_markdown_routing() {
+        let writer = OutputWriter::new("default".to_string(), PathBuf::from("/tmp"));
+        let sample_courses = serde_json::json!([
+            {"id": "1", "name": "Test", "courseState": "ACTIVE", "section": "A"}
+        ]);
+        let sample_events = serde_json::json!([
+            {"summary": "Event", "start": {"dateTime": "2026-03-31T10:00:00+07:00"}, "end": {"dateTime": "2026-03-31T11:00:00+07:00"}}
+        ]);
+        let sample_drive = serde_json::json!({"metadata": {"id": "1", "name": "Doc"}});
+
+        // Test courses routing
+        let courses_output = writer.format_data_as_markdown("classroom/courses", &sample_courses);
+        assert!(courses_output.contains("| Name | ID | State | Section |"));
+
+        // Test events routing
+        let events_output = writer.format_data_as_markdown("calendar/events", &sample_events);
+        assert!(events_output.contains("| Summary | Start | End | Location |"));
+
+        // Test drive read routing
+        let drive_output = writer.format_data_as_markdown("drive/read", &sample_drive);
+        assert!(drive_output.contains("## File Metadata"));
+
+        // Test unknown tool falls back to generic
+        let generic_output = writer.format_data_as_markdown("unknown/tool", &serde_json::json!({}));
+        // Generic should output JSON or key-value table, not course/event format
+        assert!(!generic_output.contains("| Name | ID | State | Section |"));
+        assert!(!generic_output.contains("| Summary | Start | End | Location |"));
+    }
+
+    #[test]
+    fn test_write_output_creates_md_and_json_files() {
+        let temp_dir = std::env::temp_dir().join("output_writer_test");
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let writer = OutputWriter::new("test".to_string(), temp_dir.clone());
+
+        let data = serde_json::json!({"name": "Test Course", "id": "123"});
+        let frontmatter = Frontmatter {
+            tool: "classroom/courses".to_string(),
+            profile: "test".to_string(),
+            date: "2026-03-31T00:00:00+00:00".to_string(),
+            params: None,
+        };
+
+        let result = writer.write_output("test-course", &data, &frontmatter);
+        assert!(result.is_ok());
+
+        let md_path = result.unwrap();
+        assert!(md_path.exists());
+        assert!(md_path.extension().unwrap() == "md");
+
+        // Check JSON sidecar was created
+        let json_path = md_path.with_extension("json");
+        assert!(json_path.exists());
+
+        // Verify JSON content
+        let json_content = std::fs::read_to_string(&json_path).unwrap();
+        assert!(json_content.contains("Test Course"));
+        assert!(json_content.contains("123"));
+
+        // Verify markdown content
+        let md_content = std::fs::read_to_string(&md_path).unwrap();
+        assert!(md_content.contains("---"));
+        assert!(md_content.contains("tool: classroom/courses"));
+        assert!(md_content.contains("# Test Course"));
+
+        // Cleanup
+        std::fs::remove_dir_all(&temp_dir).ok();
     }
 }
