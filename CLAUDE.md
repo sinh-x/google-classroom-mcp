@@ -9,6 +9,61 @@
 - `cargo run -- run` — Start MCP server on stdio
 - `cargo run -- auth` — Run OAuth2 authentication flow
 
+## CLI Tools
+
+The CLI provides subcommands for querying Google services from the terminal. All commands support `--profile` for account selection and `--output-dir` to override the default output directory.
+
+### Global Flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--profile <name>` | `default` | Google account profile to use |
+| `--output-dir <path>` | `~/.local/share/personal-google-mcp/{profile}/` | Override output directory |
+
+### Output Format
+
+All CLI commands (except `profiles`) write two files:
+- **Markdown** (`.md`) — Human-readable with YAML frontmatter containing `tool`, `profile`, `date`, and `params`
+- **JSON sidecar** (`.json`) — Full structured data
+
+Files are saved under `{output_dir}/{profile}/{service}/YYYY-MM-DD-{name}.{md,json}`.
+
+Stdout contains only the markdown file path. Errors and logs go to stderr.
+
+### Classroom Subcommands
+
+```
+personal-google-mcp classroom courses [--profile P]
+personal-google-mcp classroom details <course_id> [--profile P]
+personal-google-mcp classroom assignments <course_id> [--profile P]
+personal-google-mcp classroom materials <course_id> [--profile P]
+personal-google-mcp classroom topics <course_id> [--profile P]
+```
+
+### Calendar Subcommands
+
+```
+personal-google-mcp calendar list [--profile P]
+personal-google-mcp calendar events <calendar_id> [--days-ahead N] [--profile P]
+personal-google-mcp calendar details <calendar_id> <event_id> [--profile P]
+```
+
+### Drive Subcommands
+
+```
+personal-google-mcp drive read <file_id_or_url> [--profile P]
+```
+
+Supports file IDs or Google Drive/Docs URLs. Exports Google Workspace docs (Docs→text, Sheets→CSV, Slides→text). Content is truncated at 100 KB for large files.
+
+### Profile Commands
+
+```
+personal-google-mcp profiles
+```
+
+Lists available profile names to stdout (no files created). Use `--profile` on other commands to select an account.
+
 ## Architecture
 
 Rust MCP server bridging Google APIs with AI assistants via the Model Context Protocol. Designed as a unified server for personal Google services.
