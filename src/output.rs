@@ -83,10 +83,12 @@ impl OutputWriter {
         output.push_str(&format!("profile: {}\n", frontmatter.profile));
         output.push_str(&format!("date: {}\n", frontmatter.date));
         if let Some(params) = &frontmatter.params {
-            if params.is_object() && !params.as_object().unwrap().is_empty() {
-                output.push_str("params:\n");
-                for (k, v) in params.as_object().unwrap() {
-                    output.push_str(&format!("  {}: {}\n", k, v));
+            if let Some(obj) = params.as_object() {
+                if !obj.is_empty() {
+                    output.push_str("params:\n");
+                    for (k, v) in obj {
+                        output.push_str(&format!("  {}: {}\n", k, v));
+                    }
                 }
             }
         }
@@ -98,14 +100,17 @@ impl OutputWriter {
         output.push_str("\n\n");
 
         // Content
-        output.push_str(&self.format_data_as_markdown(name, data));
+        output.push_str(&self.format_data_as_markdown(&frontmatter.tool, data));
 
         output
     }
 
     /// Format JSON data as human-readable markdown.
-    fn format_data_as_markdown(&self, name: &str, data: &Value) -> String {
-        match name {
+    /// Extracts the formatter suffix from frontmatter.tool (e.g., "classroom/courses" -> "courses")
+    /// to route to the correct specialized formatter.
+    fn format_data_as_markdown(&self, tool: &str, data: &Value) -> String {
+        let suffix = tool.split('/').last().unwrap_or(tool);
+        match suffix {
             "courses" => self.format_courses(data),
             "details" => self.format_course_details(data),
             "assignments" => self.format_assignments(data),
@@ -114,7 +119,7 @@ impl OutputWriter {
             "calendars" => self.format_calendars(data),
             "events" => self.format_events(data),
             "event-details" => self.format_event_details(data),
-            "drive-read" => self.format_drive_read(data),
+            "read" => self.format_drive_read(data),
             _ => self.format_generic(data),
         }
     }
@@ -313,8 +318,7 @@ impl OutputWriter {
 
     /// Generic JSON-to-markdown formatter for tables of key-value pairs or arrays.
     fn format_generic(&self, data: &Value) -> String {
-        if data.is_object() {
-            let obj = data.as_object().unwrap();
+        if let Some(obj) = data.as_object() {
             if obj.values().all(|v| !v.is_array()) {
                 // Key-value table
                 let mut output = String::new();

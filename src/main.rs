@@ -25,7 +25,7 @@ use crate::drive::DriveClient;
 use crate::tools::{GoogleService, ProfileClients};
 
 #[derive(Parser)]
-#[command(name = "personal-google-mcp", about = "MCP server for personal Google services")]
+#[command(name = "personal-google-mcp", version, about = "MCP server for personal Google services")]
 struct Cli {
     /// Profile name to use (default: "default")
     #[arg(long, global = true, default_value = "default")]
