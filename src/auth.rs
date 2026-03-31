@@ -1,5 +1,6 @@
+use std::collections::HashMap;
 use std::future::Future;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 
 use google_calendar3::CalendarHub;
@@ -51,6 +52,13 @@ pub type DriveHubType =
 pub type CalendarHubType =
     CalendarHub<hyper_rustls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>>;
 
+/// Bundles all API hubs for a single profile.
+pub struct ProfileHubs {
+    pub classroom: ClassroomHub,
+    pub drive: DriveHubType,
+    pub calendar: CalendarHubType,
+}
+
 fn config_dir() -> Result<PathBuf, AppError> {
     let dir = dirs::config_dir()
         .ok_or_else(|| AppError::CredentialRead("cannot determine config directory".into()))?
@@ -79,6 +87,17 @@ pub fn profile_dir() -> Result<PathBuf, AppError> {
     }
 }
 
+/// Returns the directory for a given profile name.
+/// "default" returns the root config dir, named profiles return config_dir()/{name}/.
+pub fn profile_dir_for(name: &str) -> Result<PathBuf, AppError> {
+    let base = config_dir()?;
+    if name == "default" {
+        Ok(base)
+    } else {
+        Ok(base.join(name))
+    }
+}
+
 /// Returns the active profile name, or None for the default profile.
 pub fn active_profile() -> Option<String> {
     std::env::var("PGM_PROFILE")
@@ -92,6 +111,147 @@ fn credentials_path() -> Result<PathBuf, AppError> {
 
 fn tokens_path() -> Result<PathBuf, AppError> {
     Ok(profile_dir()?.join("tokens.json"))
+}
+
+/// Discover all authenticated profiles by scanning the config directory.
+/// Root-level tokens.json → "default", subdirectories with tokens.json → named profiles.
+/// Skips the "cache" directory.
+pub fn discover_profiles() -> Result<Vec<(String, PathBuf)>, AppError> {
+    let base = config_dir()?;
+    let mut profiles = Vec::new();
+
+    // Check root-level tokens.json → "default" profile
+    if base.join("tokens.json").exists() {
+        profiles.push(("default".to_string(), base.clone()));
+    }
+
+    // Scan subdirectories for named profiles
+    if let Ok(entries) = std::fs::read_dir(&base) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let name = match path.file_name().and_then(|n| n.to_str()) {
+                Some(n) => n.to_string(),
+                None => continue,
+            };
+            // Skip the cache directory and hidden dirs
+            if name == "cache" || name.starts_with('.') {
+                continue;
+            }
+            if path.join("tokens.json").exists() {
+                profiles.push((name, path));
+            }
+        }
+    }
+
+    if profiles.is_empty() {
+        return Err(AppError::CredentialRead(
+            "no authenticated profiles found — run `personal-google-mcp auth` first".into(),
+        ));
+    }
+
+    Ok(profiles)
+}
+
+/// Build API hubs for a single profile from its config directory.
+pub async fn build_hubs_for_profile(name: &str, dir: &Path) -> Result<ProfileHubs, AppError> {
+    let creds_path = credentials_path()?;
+    if !creds_path.exists() {
+        return Err(AppError::CredentialRead(format!(
+            "credentials.json not found — download from Google Cloud Console and place at {}",
+            creds_path.display()
+        )));
+    }
+
+    let tokens = dir.join("tokens.json");
+    if !tokens.exists() {
+        return Err(AppError::CredentialRead(format!(
+            "not authenticated for profile '{name}' — run `PGM_PROFILE={name} personal-google-mcp auth`"
+        )));
+    }
+
+    let secret = read_application_secret(&creds_path)
+        .await
+        .map_err(|e| AppError::CredentialRead(format!("failed to parse credentials.json: {e}")))?;
+
+    let auth = InstalledFlowAuthenticator::builder(
+        secret,
+        InstalledFlowReturnMethod::Interactive,
+    )
+    .persist_tokens_to_disk(&tokens)
+    .flow_delegate(Box::new(ServerFlowDelegate))
+    .build()
+    .await
+    .map_err(|e| AppError::OAuth2(e.to_string()))?;
+
+    match auth.token(SCOPES).await {
+        Ok(_) => tracing::info!("profile '{name}': OAuth token validated"),
+        Err(e) => {
+            return Err(AppError::OAuth2(format!(
+                "profile '{name}': token refresh failed — re-authenticate with \
+                 `PGM_PROFILE={name} personal-google-mcp auth`: {e}"
+            )));
+        }
+    }
+
+    let build_client = || -> Result<_, AppError> {
+        let connector = hyper_rustls::HttpsConnectorBuilder::new()
+            .with_native_roots()
+            .map_err(|e| AppError::Io(std::io::Error::other(e)))?
+            .https_only()
+            .enable_http2()
+            .build();
+        Ok(hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new())
+            .build(connector))
+    };
+
+    let classroom = Classroom::new(build_client()?, auth.clone());
+    let drive = DriveHub::new(build_client()?, auth.clone());
+    let calendar = CalendarHub::new(build_client()?, auth);
+
+    tracing::info!("profile '{name}': API hubs ready");
+    Ok(ProfileHubs {
+        classroom,
+        drive,
+        calendar,
+    })
+}
+
+/// Discover all profiles and build hubs for each.
+/// Warns on individual failures but errors only if all profiles fail.
+pub async fn build_all_hubs() -> Result<HashMap<String, ProfileHubs>, AppError> {
+    let profiles = discover_profiles()?;
+    let mut all_hubs = HashMap::new();
+    let mut errors = Vec::new();
+
+    for (name, dir) in &profiles {
+        match build_hubs_for_profile(name, dir).await {
+            Ok(hubs) => {
+                all_hubs.insert(name.clone(), hubs);
+            }
+            Err(e) => {
+                tracing::warn!("failed to build hubs for profile '{name}': {e}");
+                errors.push(format!("{name}: {e}"));
+            }
+        }
+    }
+
+    if all_hubs.is_empty() {
+        return Err(AppError::CredentialRead(format!(
+            "all profiles failed to authenticate:\n{}",
+            errors.join("\n")
+        )));
+    }
+
+    tracing::info!(
+        "loaded {} profile(s): {}",
+        all_hubs.len(),
+        all_hubs.keys().cloned().collect::<Vec<_>>().join(", ")
+    );
+
+    Ok(all_hubs)
 }
 
 /// Run the interactive OAuth2 flow: opens a browser, waits for consent, saves tokens.
@@ -147,78 +307,4 @@ pub async fn run_auth_flow() -> Result<(), AppError> {
     tracing::debug!("Token expires: {:?}", token.expiration_time());
 
     Ok(())
-}
-
-/// Build Classroom and Drive API hubs from previously saved tokens.
-pub async fn build_hubs() -> Result<(ClassroomHub, DriveHubType, CalendarHubType), AppError> {
-    if let Some(profile) = active_profile() {
-        tracing::info!("Using profile: {profile}");
-    }
-
-    let profile_hint = match active_profile() {
-        Some(p) => format!(" for profile '{p}' — run `PGM_PROFILE={p} personal-google-mcp auth`"),
-        None => " — run `personal-google-mcp auth` first".into(),
-    };
-
-    let creds_path = credentials_path()?;
-    if !creds_path.exists() {
-        return Err(AppError::CredentialRead(format!(
-            "not authenticated{profile_hint}"
-        )));
-    }
-
-    let tokens = tokens_path()?;
-    if !tokens.exists() {
-        return Err(AppError::CredentialRead(format!(
-            "not authenticated{profile_hint}"
-        )));
-    }
-
-    let secret = read_application_secret(&creds_path)
-        .await
-        .map_err(|e| AppError::CredentialRead(format!("failed to parse credentials.json: {e}")))?;
-
-    // Use Interactive mode (not HTTPPortRedirect) so that when the delegate
-    // returns Err, the error propagates instead of blocking on wait_for_auth_code().
-    // With HTTPPortRedirect, the delegate's return is discarded (`let _ =`) and
-    // the server blocks forever waiting for a browser redirect that never comes.
-    let auth = InstalledFlowAuthenticator::builder(
-        secret,
-        InstalledFlowReturnMethod::Interactive,
-    )
-    .persist_tokens_to_disk(&tokens)
-    .flow_delegate(Box::new(ServerFlowDelegate))
-    .build()
-    .await
-    .map_err(|e| AppError::OAuth2(e.to_string()))?;
-
-    // Validate token at startup — catches expired/revoked tokens before any
-    // MCP tool call. With an unverified Google app, refresh tokens expire after
-    // 7 days, so this will fail fast with a clear re-auth message.
-    match auth.token(SCOPES).await {
-        Ok(_) => tracing::info!("OAuth token validated successfully"),
-        Err(e) => {
-            return Err(AppError::OAuth2(format!(
-                "token refresh failed — re-authenticate with `personal-google-mcp auth`: {e}"
-            )));
-        }
-    }
-
-    let build_client = || -> Result<_, AppError> {
-        let connector = hyper_rustls::HttpsConnectorBuilder::new()
-            .with_native_roots()
-            .map_err(|e| AppError::Io(std::io::Error::other(e)))?
-            .https_only()
-            .enable_http2()
-            .build();
-        Ok(hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new())
-            .build(connector))
-    };
-
-    let classroom_hub = Classroom::new(build_client()?, auth.clone());
-    let drive_hub = DriveHub::new(build_client()?, auth.clone());
-    let calendar_hub = CalendarHub::new(build_client()?, auth);
-
-    tracing::info!("Google API hubs ready");
-    Ok((classroom_hub, drive_hub, calendar_hub))
 }
