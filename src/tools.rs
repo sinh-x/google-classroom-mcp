@@ -285,7 +285,7 @@ impl ServerHandler for GoogleService {
         );
 
         ServerInfo {
-            instructions: Some(instructions.into()),
+            instructions: Some(instructions),
             capabilities: ServerCapabilities::builder().enable_tools().build(),
             ..Default::default()
         }

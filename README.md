@@ -1,17 +1,79 @@
 # Personal Google MCP Server
 
-A Rust [MCP](https://modelcontextprotocol.io/) server that provides access to personal Google services — currently Classroom, Drive, with Calendar and more planned.
+A Rust [MCP](https://modelcontextprotocol.io/) server that provides access to personal Google services — Classroom, Calendar, and Drive — via both MCP tools and CLI subcommands.
 
-## Tools
+## MCP Tools
+
+All tools accept an optional `profile` parameter to select which Google account to use.
 
 | Tool | Parameters | Description |
 |------|-----------|-------------|
-| `courses` | — | List all courses for the authenticated user |
-| `course_details` | `course_id` | Get course info + recent announcements (up to 20) |
-| `assignments` | `course_id` | Get coursework + student submissions for the first 5 assignments |
-| `course_materials` | `course_id` | Posted resources (docs, links, videos) |
-| `course_topics` | `course_id` | Topics (modules/sections) organizing content |
-| `read_material` | `file_id_or_url` | Read Google Drive file content (Docs, Sheets, CSV) |
+| `list_profiles` | — | List available profiles and which is default |
+| `courses` | `profile?` | List all courses |
+| `course_details` | `course_id`, `profile?` | Course info + up to 20 announcements |
+| `assignments` | `course_id`, `profile?` | Coursework + submissions for first 5 |
+| `course_materials` | `course_id`, `profile?` | Posted resources (docs, links, videos) |
+| `course_topics` | `course_id`, `profile?` | Topics (modules/sections) organizing content |
+| `read_material` | `file_id_or_url`, `profile?` | Read Google Drive file content (Docs→text, Sheets→CSV) |
+| `calendars` | `profile?` | List all calendars |
+| `calendar_events` | `calendar_id`, `days_ahead?`, `profile?` | Upcoming events on a calendar |
+| `calendar_event_details` | `calendar_id`, `event_id`, `profile?` | Full details for a specific event |
+
+## CLI Tools
+
+CLI subcommands mirror MCP tools for terminal/script usage. All commands save output as local files.
+
+### Global Flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--profile <name>` | `default` | Google account profile to use |
+| `--output-dir <path>` | `~/.local/share/personal-google-mcp/{profile}/` | Override output directory |
+
+### Classroom
+
+```sh
+personal-google-mcp classroom courses [--profile P]
+personal-google-mcp classroom details <course_id> [--profile P]
+personal-google-mcp classroom assignments <course_id> [--profile P]
+personal-google-mcp classroom materials <course_id> [--profile P]
+personal-google-mcp classroom topics <course_id> [--profile P]
+```
+
+### Calendar
+
+```sh
+personal-google-mcp calendar list [--profile P]
+personal-google-mcp calendar events <calendar_id> [--days-ahead N] [--profile P]
+personal-google-mcp calendar details <calendar_id> <event_id> [--profile P]
+```
+
+### Drive
+
+```sh
+personal-google-mcp drive read <file_id_or_url> [--profile P]
+```
+
+Supports file IDs or Google Drive/Docs URLs. Exports Google Workspace docs (Docs→text, Sheets→CSV, Slides→text). Content is truncated at 100 KB for large files.
+
+### Profiles
+
+```sh
+personal-google-mcp profiles
+```
+
+Lists available profile names to stdout (no files created).
+
+### Output Format
+
+All CLI commands (except `profiles`) write two files:
+
+- **Markdown** (`.md`) — Human-readable with YAML frontmatter containing `tool`, `profile`, `date`, and `params`
+- **JSON sidecar** (`.json`) — Full structured data
+
+Files are saved to `{output_dir}/{service}/YYYY-MM-DD-{name}.{md,json}`.
+
+Stdout contains only the markdown file path. Errors and logs go to stderr.
 
 ## Prerequisites
 
@@ -25,9 +87,40 @@ A Rust [MCP](https://modelcontextprotocol.io/) server that provides access to pe
 3. Enable the required APIs under APIs & Services → Library:
    - **Google Classroom API**
    - **Google Drive API**
+   - **Google Calendar API**
 4. Go to APIs & Services → Credentials → Create Credentials → OAuth client ID
 5. Select **Desktop app** as application type
 6. Download the JSON and save it as `~/.config/personal-google-mcp/credentials.json`
+
+## Multi-Profile Authentication
+
+The server supports multiple Google accounts via named profiles.
+
+### Authenticate
+
+```sh
+# Default profile
+cargo run -- auth
+# or with Nix: pgm-auth
+
+# Named profile
+PGM_PROFILE=work cargo run -- auth
+```
+
+This opens a browser for Google sign-in and saves tokens. Tokens auto-refresh on subsequent runs.
+
+### File Layout
+
+```
+~/.config/personal-google-mcp/
+├── credentials.json              # Shared OAuth client config
+├── tokens.json                   # Default profile tokens
+└── work/                         # Named profile
+    ├── tokens.json
+    └── cache/                    # Per-profile disk cache
+```
+
+At startup, the server discovers all authenticated profiles by scanning for directories containing `tokens.json`. Use `--profile` on CLI commands or the `profile` parameter on MCP tools to select an account.
 
 ## Build
 
@@ -40,20 +133,9 @@ pgm-build      # or: cargo build --release
 cargo build --release
 ```
 
-## Authenticate
-
-Run the auth command once to sign in with Google:
-
-```sh
-cargo run -- auth
-# or in nix shell: pgm-auth
-```
-
-This opens a browser for Google sign-in and saves tokens to `~/.config/personal-google-mcp/tokens.json`. Tokens auto-refresh on subsequent runs.
-
 ## Usage
 
-### Standalone (stdio)
+### MCP Server (stdio)
 
 ```sh
 cargo run -- run
@@ -67,12 +149,14 @@ Add to your Claude Desktop config (`~/.config/claude/claude_desktop_config.json`
 {
   "mcpServers": {
     "personal-google": {
-      "command": "/path/to/personal-google-mcp",
+      "command": "personal-google-mcp",
       "args": ["run"]
     }
   }
 }
 ```
+
+Then use `list_profiles` to see available accounts and pass `"profile": "work"` to any tool.
 
 ### Testing with MCP Inspector
 

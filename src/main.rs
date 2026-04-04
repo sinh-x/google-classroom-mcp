@@ -4,6 +4,7 @@ mod classroom;
 mod cli;
 mod drive;
 mod error;
+mod formatters;
 mod output;
 mod tools;
 
