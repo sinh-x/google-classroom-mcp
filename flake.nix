@@ -12,6 +12,22 @@
         pkgs = nixpkgs.legacyPackages.${system};
       in
       {
+        packages.default = pkgs.rustPlatform.buildRustPackage {
+          pname = "personal-google-mcp";
+          version = "0.2.0";
+          src = pkgs.lib.cleanSource ./.;
+
+          cargoLock.lockFile = ./Cargo.lock;
+
+          nativeBuildInputs = with pkgs; [
+            pkg-config
+          ];
+
+          buildInputs = with pkgs; [
+            openssl
+          ];
+        };
+
         devShells.default = pkgs.mkShell {
           buildInputs = with pkgs; [
             # Rust toolchain
@@ -23,6 +39,9 @@
             # Build dependencies
             pkg-config
             openssl
+
+            # Security auditing
+            cargo-audit
           ];
 
           shellHook = ''
